@@ -1,0 +1,37 @@
+{
+  "version": 3,
+  "artifactType": {
+    "type": "APK",
+    "kind": "Directory"
+  },
+  "applicationId": "com.swordfish.lemuroid",
+  "variantName": "freeDynamicRelease",
+  "elements": [
+    {
+      "type": "SINGLE",
+      "filters": [],
+      "attributes": [],
+      "versionCode": 231,
+      "versionName": "1.17.0",
+      "outputFile": "lemuroid-app-free-dynamic-release.apk"
+    }
+  ],
+  "elementType": "File",
+  "baselineProfiles": [
+    {
+      "minApi": 28,
+      "maxApi": 30,
+      "baselineProfiles": [
+        "baselineProfiles/1/lemuroid-app-free-dynamic-release.dm"
+      ]
+    },
+    {
+      "minApi": 31,
+      "maxApi": 2147483647,
+      "baselineProfiles": [
+        "baselineProfiles/0/lemuroid-app-free-dynamic-release.dm"
+      ]
+    }
+  ],
+  "minSdkVersionForDexing": 23
+}
