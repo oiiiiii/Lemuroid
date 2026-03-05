@@ -13,4 +13,5 @@
 ## 下载
 
 安装包：https://diaoyu.lanzouu.com/i5l5S3jvhopa
-动态库：https://diaoyu.lanzouu.com/iel8X3jvhplc
+
+v8a的全部动态库（20个）：https://diaoyu.lanzouu.com/iel8X3jvhplc
