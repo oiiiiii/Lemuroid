@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,6 +51,7 @@ import com.swordfish.lemuroid.app.utils.android.stringListResource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -226,17 +228,23 @@ private fun RomsSettings(
     val currentDirectory = state.currentDirectory
     val emptyDirectory = stringResource(R.string.none)
 
-    val currentDirectoryName =
-        remember(state.currentDirectory) {
-            runCatching {
+    val currentDirectoryName = remember { mutableStateOf(emptyDirectory) }
+
+    LaunchedEffect(state.currentDirectory) {
+        withContext(Dispatchers.IO) {
+            val name = runCatching {
                 DocumentFile.fromTreeUri(context, Uri.parse(currentDirectory))?.name
             }.getOrNull() ?: emptyDirectory
+            withContext(Dispatchers.Main) {
+                currentDirectoryName.value = name
+            }
         }
+    }
 
     LemuroidCardSettingsGroup(title = { Text(text = stringResource(id = R.string.roms)) }) {
         LemuroidSettingsMenuLink(
             title = { Text(text = stringResource(id = R.string.directory)) },
-            subtitle = { Text(text = currentDirectoryName) },
+            subtitle = { Text(text = currentDirectoryName.value) },
             onClick = { onChangeFolder() },
             enabled = !indexingInProgress,
         )
@@ -274,17 +282,23 @@ private fun CoresSettings(
     val currentCoresDirectory = state.currentCoresDirectory
     val emptyDirectory = stringResource(R.string.none)
 
-    val currentCoresDirectoryName =
-        remember(state.currentCoresDirectory) {
-            runCatching {
+    val currentCoresDirectoryName = remember { mutableStateOf(emptyDirectory) }
+
+    LaunchedEffect(state.currentCoresDirectory) {
+        withContext(Dispatchers.IO) {
+            val name = runCatching {
                 DocumentFile.fromTreeUri(context, Uri.parse(currentCoresDirectory))?.name
             }.getOrNull() ?: emptyDirectory
+            withContext(Dispatchers.Main) {
+                currentCoresDirectoryName.value = name
+            }
         }
+    }
 
     LemuroidCardSettingsGroup(title = { Text(text = "游戏核心") }) {
         LemuroidSettingsMenuLink(
             title = { Text(text = "游戏核心目录") },
-            subtitle = { Text(text = currentCoresDirectoryName) },
+            subtitle = { Text(text = currentCoresDirectoryName.value) },
             onClick = { onChangeCoresFolder() },
             enabled = !indexingInProgress,
         )
