@@ -5,6 +5,7 @@
 
 ## 优化
 - 优化了搜索功能，尤其是对中文的支持。
+- 优化了游戏扫描的逻辑，更快了~
 - 新增外置运行动态库文件，方便连不上外网，无法使用程序内置方式加载核心的问题。
 - 下载核心在：https://buildbot.libretro.com/nightly/android/latest/
 - 设置>>游戏核心>>所需游戏核心可以查看当前选择的ROM库缺少哪些动态库文件，在上面网址下载zip压缩包后解压出.so文件放在核心目录下就可以了。
@@ -12,6 +13,6 @@
 
 ## 下载
 
-安装包：https://diaoyu.lanzouu.com/i5l5S3jvhopa
+安装包：https://diaoyu.lanzouu.com/i92xp3k228cd
 
 v8a的全部动态库（20个）：https://diaoyu.lanzouu.com/iel8X3jvhplc
