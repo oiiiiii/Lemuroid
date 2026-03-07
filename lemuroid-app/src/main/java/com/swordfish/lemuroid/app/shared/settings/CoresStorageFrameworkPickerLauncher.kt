@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import com.swordfish.lemuroid.R
+import com.swordfish.lemuroid.app.shared.library.LibraryIndexScheduler
 import com.swordfish.lemuroid.app.utils.android.displayErrorDialog
 import com.swordfish.lemuroid.lib.android.RetrogradeActivity
 import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
@@ -61,20 +62,32 @@ class CoresStorageFrameworkPickerLauncher : RetrogradeActivity() {
                     this.putString(preferenceKey, newValue.toString())
                     this.apply()
                 }
+                
+                // 立即触发核心更新，确保核心目录设置后能够及时扫描核心
+                LibraryIndexScheduler.scheduleCoreUpdate(applicationContext)
             }
         }
         finish()
     }
 
     private fun updatePersistableUris(uri: Uri) {
+        // 只释放非 ROM 目录的权限
         contentResolver.persistedUriPermissions
             .filter { it.isReadPermission }
             .filter { it.uri != uri }
             .forEach {
-                contentResolver.releasePersistableUriPermission(
-                    it.uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                // 保留 ROM 目录权限
+                val sharedPreferences = SharedPreferencesHelper.getLegacySharedPreferences(this)
+                val romsFolderUri = sharedPreferences.getString(
+                    getString(com.swordfish.lemuroid.lib.R.string.pref_key_extenral_folder),
+                    null
                 )
+                if (romsFolderUri != it.uri.toString()) {
+                    contentResolver.releasePersistableUriPermission(
+                        it.uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
             }
 
         contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)

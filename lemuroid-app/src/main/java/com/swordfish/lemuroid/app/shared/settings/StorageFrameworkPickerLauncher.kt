@@ -71,14 +71,23 @@ class StorageFrameworkPickerLauncher : RetrogradeActivity() {
     }
 
     private fun updatePersistableUris(uri: Uri) {
+        // 只释放非核心目录的权限
         contentResolver.persistedUriPermissions
             .filter { it.isReadPermission }
             .filter { it.uri != uri }
             .forEach {
-                contentResolver.releasePersistableUriPermission(
-                    it.uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                // 保留核心目录权限
+                val sharedPreferences = SharedPreferencesHelper.getLegacySharedPreferences(this)
+                val coresFolderUri = sharedPreferences.getString(
+                    getString(com.swordfish.lemuroid.lib.R.string.pref_key_cores_folder),
+                    null
                 )
+                if (coresFolderUri != it.uri.toString()) {
+                    contentResolver.releasePersistableUriPermission(
+                        it.uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
             }
 
         contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)

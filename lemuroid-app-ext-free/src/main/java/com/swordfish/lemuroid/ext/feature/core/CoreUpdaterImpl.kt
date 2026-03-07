@@ -83,7 +83,7 @@ class CoreUpdaterImpl(
             return externalLibrary
         }
         
-        Timber.d("Downloading core from GitHub")
+        Timber.d("No bundled or external core found, downloading from GitHub")
         val downloadedCore = downloadCoreFromGithub(coreID)
         verifyCoreFilePermissions(downloadedCore)
         return downloadedCore
@@ -130,16 +130,65 @@ class CoreUpdaterImpl(
                         val coreFile = documentFileToFile(context, foundDocumentFile)
                         if (coreFile != null) {
                             Timber.d("Converted to File: ${coreFile.absolutePath}, exists: ${coreFile.exists()}")
-                            return@withContext coreFile
+                            // 验证文件是否可读可执行
+                            if (coreFile.canRead()) {
+                                Timber.d("Core file is readable")
+                                if (!coreFile.canExecute()) {
+                                    Timber.d("Setting executable permission for core file")
+                                    coreFile.setExecutable(true)
+                                }
+                                return@withContext coreFile
+                            } else {
+                                Timber.d("Core file is not readable")
+                            }
+                        } else {
+                            Timber.d("Failed to convert DocumentFile to File")
                         }
                     } else {
                         Timber.d("Core file not found in external directory, looking for: ${coreID.libretroFileName}")
+                        // 尝试直接查找常见的核心文件名变体
+                        val alternativeNames = listOf(
+                            coreID.libretroFileName,
+                            "lib${coreID.coreName}_libretro_android.so",
+                            "lib${coreID.coreName}_libretro.so"
+                        )
+                        for (altName in alternativeNames) {
+                            val altFoundFile = findCoreDocumentFile(coresFolder, altName)
+                            if (altFoundFile != null) {
+                                Timber.d("Found core document file with alternative name: ${altFoundFile.name}")
+                                val coreFile = documentFileToFile(context, altFoundFile)
+                                if (coreFile != null && coreFile.canRead()) {
+                                    Timber.d("Converted alternative core file: ${coreFile.absolutePath}")
+                                    if (!coreFile.canExecute()) {
+                                        coreFile.setExecutable(true)
+                                    }
+                                    return@withContext coreFile
+                                }
+                            }
+                        }
                     }
                 } else {
                     Timber.d("External cores folder is not a directory or null")
                 }
             } catch (e: Exception) {
                 Timber.e("Error accessing external cores folder: $e")
+                // 尝试使用备用方法获取核心目录
+                try {
+                    val coresDir = File(coresFolderUri.replace("content://", "/storage/emulated/0/"))
+                    if (coresDir.exists() && coresDir.isDirectory) {
+                        Timber.d("Alternative cores directory: ${coresDir.absolutePath}")
+                        val coreFile = coresDir.walkBottomUp().firstOrNull { it.name == coreID.libretroFileName }
+                        if (coreFile != null) {
+                            Timber.d("Found core file using alternative method: ${coreFile.absolutePath}")
+                            if (!coreFile.canExecute()) {
+                                coreFile.setExecutable(true)
+                            }
+                            return@withContext coreFile
+                        }
+                    }
+                } catch (e2: Exception) {
+                    Timber.e("Error with alternative method: $e2")
+                }
             }
         } else {
             Timber.d("No external cores folder set")
@@ -164,10 +213,30 @@ class CoreUpdaterImpl(
             // 尝试获取文件路径
             val uri = documentFile.uri
             val filePath = uri.path
+            Timber.d("DocumentFile URI: $uri, path: $filePath")
+            
             if (filePath != null) {
-                // 处理 content:// URI 路径
-                val path = filePath.replace("/document/", "/storage/emulated/0/")
+                // 处理不同类型的 content:// URI 路径
+                var path = filePath
+                // 处理 document 类型的 URI
+                if (path.contains("/document/")) {
+                    path = path.replace("/document/", "/storage/emulated/0/")
+                    // 移除可能的文档 ID 部分
+                    if (path.contains(":")) {
+                        path = path.substring(path.indexOf(":") + 1)
+                    }
+                }
+                // 处理 tree 类型的 URI
+                else if (path.contains("/tree/")) {
+                    path = path.replace("/tree/", "/storage/emulated/0/")
+                    // 移除可能的树 ID 部分
+                    if (path.contains(":")) {
+                        path = path.substring(path.indexOf(":") + 1)
+                    }
+                }
+                
                 val file = File(path)
+                Timber.d("Converted path: ${file.absolutePath}, exists: ${file.exists()}")
                 if (file.exists()) {
                     return file
                 }
@@ -177,14 +246,19 @@ class CoreUpdaterImpl(
             val cacheFile = File(context.cacheDir, documentFile.name ?: "core")
             cacheFile.deleteOnExit()
             
+            Timber.d("Copying file to cache: ${cacheFile.absolutePath}")
             context.contentResolver.openInputStream(documentFile.uri)?.use { inputStream ->
                 cacheFile.outputStream().use { outputStream ->
-                    inputStream.copyTo(outputStream)
+                    val bytesCopied = inputStream.copyTo(outputStream)
+                    Timber.d("Copied $bytesCopied bytes to cache")
                 }
             }
             
             if (cacheFile.exists() && cacheFile.length() > 0) {
+                Timber.d("Cache file created: ${cacheFile.absolutePath}, size: ${cacheFile.length()} bytes")
                 return cacheFile
+            } else {
+                Timber.d("Cache file creation failed")
             }
         } catch (e: Exception) {
             Timber.e("Error converting DocumentFile to File: $e")
