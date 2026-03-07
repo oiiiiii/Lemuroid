@@ -70,7 +70,7 @@ class LemuroidLibrary(
         val gameMetadata = gameMetadataProvider.get()
         val enabledProviders = storageProviderRegistry.get().enabledProviders
         enabledProviders.asFlow()
-            .flatMapConcat { indexSingleProvider(it, startedAtMs, gameMetadata) }
+            .flatMapMerge { indexSingleProvider(it, startedAtMs, gameMetadata) }
             .collect()
     }
 
@@ -80,10 +80,24 @@ class LemuroidLibrary(
         startedAtMs: Long,
         gameMetadata: GameMetadataProvider,
     ): Flow<Unit> {
+        // 动态批处理大小，根据设备性能调整
+        val dynamicBatchSize = calculateDynamicBatchSize()
         return provider.listBaseStorageFiles()
             .flatMapConcat { StorageFilesMerger.mergeDataFiles(provider, it).asFlow() }
-            .batchWithSizeAndTime(MAX_BUFFER_SIZE, MAX_TIME)
+            .batchWithSizeAndTime(dynamicBatchSize, MAX_TIME)
             .flatMapMerge { processBatch(it, provider, startedAtMs, gameMetadata) }
+    }
+
+    private fun calculateDynamicBatchSize(): Int {
+        // 根据设备内存和CPU核心数动态调整批处理大小
+        val availableMemory = Runtime.getRuntime().maxMemory() / (1024 * 1024) // MB
+        val coreCount = Runtime.getRuntime().availableProcessors()
+        
+        return when {
+            availableMemory > 2048 && coreCount >= 8 -> 500
+            availableMemory > 1024 && coreCount >= 4 -> 300
+            else -> 200
+        }
     }
 
     private suspend fun processBatch(
@@ -92,22 +106,24 @@ class LemuroidLibrary(
         startedAtMs: Long,
         gameMetadata: GameMetadataProvider,
     ) = flow<Unit> {
-        val entries = batch.map { fetchEntriesFromDatabase(it) }
+        // 批量查询数据库，减少数据库I/O次数
+        val entries = batch.map { it.primaryFile.uri.toString() }
+        val existingGames = retrogradedb.gameDao().selectByFileUris(entries)
+        val existingGameMap = existingGames.associateBy { it.fileUri }
 
-        val existingEntries = entries.filterIsInstance<ScanEntry.GameFile>()
+        val entriesWithGame = batch.map { storageFile ->
+            val game = existingGameMap[storageFile.primaryFile.uri.toString()]
+            buildScanEntry(storageFile, game)
+        }
+
+        val existingEntries = entriesWithGame.filterIsInstance<ScanEntry.GameFile>()
         handleExistingEntries(existingEntries, startedAtMs)
 
         val newEntries =
-            entries.filterIsInstance<ScanEntry.File>()
+            entriesWithGame.filterIsInstance<ScanEntry.File>()
                 .map { buildEntryFromMetadata(it.file, provider, gameMetadata, startedAtMs) }
 
         handleNewEntries(newEntries, startedAtMs, provider)
-    }
-
-    private fun fetchEntriesFromDatabase(storageFile: GroupedStorageFiles): ScanEntry {
-        Timber.d("Retrieving scan entry for uri: ${storageFile.primaryFile}")
-        val game = retrogradedb.gameDao().selectByFileUri(storageFile.primaryFile.uri.toString())
-        return buildScanEntry(storageFile, game)
     }
 
     private fun buildScanEntry(
@@ -220,13 +236,32 @@ class LemuroidLibrary(
         startedAtMs: Long,
     ) {
         files.forEach { baseStorageFile ->
-            val storageFile = safeStorageFile(provider, baseStorageFile)
-            val inputStream = storageFile?.uri?.let { provider.getInputStream(it) }
-
-            if (storageFile != null && inputStream != null) {
-                biosManager.tryAddBiosAfter(storageFile, inputStream, startedAtMs)
+            // 先通过文件后缀和大小筛选，减少不必要的I/O操作
+            if (isPotentialBiosFile(baseStorageFile)) {
+                val storageFile = safeStorageFile(provider, baseStorageFile)
+                if (storageFile != null) {
+                    // 使用 use{} 确保输入流自动关闭
+                    provider.getInputStream(storageFile.uri)?.use {inputStream ->
+                        biosManager.tryAddBiosAfter(storageFile, inputStream, startedAtMs)
+                    }
+                }
             }
         }
+    }
+
+    private fun isPotentialBiosFile(file: BaseStorageFile): Boolean {
+        // BIOS文件通常有特定的后缀和大小范围
+        val biosExtensions = setOf(".bin", ".bios", ".rom", ".sys")
+        val fileName = file.name.lowercase()
+        
+        // 检查文件后缀
+        val hasBiosExtension = biosExtensions.any { fileName.endsWith(it) }
+        
+        // 检查文件大小（BIOS文件通常在1KB到1MB之间）
+        val fileSize = file.size ?: 0
+        val isReasonableSize = fileSize in 1024..(1024 * 1024) // 1KB to 1MB
+        
+        return hasBiosExtension && isReasonableSize
     }
 
     private suspend fun buildEntryFromMetadata(
@@ -239,6 +274,7 @@ class LemuroidLibrary(
             sortedFilesForScanning(groupedStorageFile).asFlow()
                 .mapNotNull { safeStorageFile(provider, it) }
                 .mapNotNull { storageFile ->
+                    // 尝试从缓存获取元数据，减少文件I/O
                     val metadata = metadataProvider.retrieveMetadata(storageFile)
                     convertGameMetadataToGame(groupedStorageFile, storageFile, metadata, startedAtMs)
                 }
